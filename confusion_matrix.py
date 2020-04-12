@@ -7,6 +7,10 @@ from object_detection.core import standard_fields
 from object_detection.metrics import tf_example_parser
 from object_detection.utils import label_map_util
 
+from sklearn.metrics import confusion_matrix as visualCM
+from sklearn.metrics import ConfusionMatrixDisplay
+import matplotlib.ticker as ticker
+
 flags = tf.app.flags
 
 flags.DEFINE_string('label_map', None, 'Path to the label map')
@@ -18,10 +22,13 @@ FLAGS = flags.FLAGS
 IOU_THRESHOLD = 0.5
 CONFIDENCE_THRESHOLD = 0.5
 
+correct = []
+actual = []
+
 def compute_iou(groundtruth_box, detection_box):
     g_ymin, g_xmin, g_ymax, g_xmax = tuple(groundtruth_box.tolist())
     d_ymin, d_xmin, d_ymax, d_xmax = tuple(detection_box.tolist())
-    
+
     xa = max(g_xmin, d_xmin)
     ya = max(g_ymin, d_ymin)
     xb = min(g_xmax, d_xmax)
@@ -40,56 +47,59 @@ def process_detections(detections_record, categories):
 
     confusion_matrix = np.zeros(shape=(len(categories) + 1, len(categories) + 1))
 
+
     image_index = 0
     for string_record in record_iterator:
         example = tf.train.Example()
         example.ParseFromString(string_record)
         decoded_dict = data_parser.parse(example)
-        
+
         image_index += 1
-        
+
         if decoded_dict:
             groundtruth_boxes = decoded_dict[standard_fields.InputDataFields.groundtruth_boxes]
             groundtruth_classes = decoded_dict[standard_fields.InputDataFields.groundtruth_classes]
-            
+
             detection_scores = decoded_dict[standard_fields.DetectionResultFields.detection_scores]
             detection_classes = decoded_dict[standard_fields.DetectionResultFields.detection_classes][detection_scores >= CONFIDENCE_THRESHOLD]
             detection_boxes = decoded_dict[standard_fields.DetectionResultFields.detection_boxes][detection_scores >= CONFIDENCE_THRESHOLD]
-            
+
             matches = []
-            
+
             if image_index % 100 == 0:
                 print("Processed %d images" %(image_index))
-            
+
             for i in range(len(groundtruth_boxes)):
                 for j in range(len(detection_boxes)):
                     iou = compute_iou(groundtruth_boxes[i], detection_boxes[j])
-                    
+
                     if iou > IOU_THRESHOLD:
                         matches.append([i, j, iou])
-                    
+
             matches = np.array(matches)
             if matches.shape[0] > 0:
                 # Sort list of matches by descending IOU so we can remove duplicate detections
                 # while keeping the highest IOU entry.
                 matches = matches[matches[:, 2].argsort()[::-1][:len(matches)]]
-                
+
                 # Remove duplicate detections from the list.
                 matches = matches[np.unique(matches[:,1], return_index=True)[1]]
-                
+
                 # Sort the list again by descending IOU. Removing duplicates doesn't preserve
                 # our previous sort.
                 matches = matches[matches[:, 2].argsort()[::-1][:len(matches)]]
-                
+
                 # Remove duplicate ground truths from the list.
                 matches = matches[np.unique(matches[:,0], return_index=True)[1]]
-                
+
             for i in range(len(groundtruth_boxes)):
                 if matches.shape[0] > 0 and matches[matches[:,0] == i].shape[0] == 1:
-                    confusion_matrix[groundtruth_classes[i] - 1][detection_classes[int(matches[matches[:,0] == i, 1][0])] - 1] += 1 
+                    confusion_matrix[groundtruth_classes[i] - 1][detection_classes[int(matches[matches[:,0] == i, 1][0])] - 1] += 1
+                    correct.append(groundtruth_classes[i]-1)
+                    actual.append(detection_classes[int(matches[matches[:,0] == i, 1][0])])
                 else:
                     confusion_matrix[groundtruth_classes[i] - 1][confusion_matrix.shape[1] - 1] += 1
-                    
+
             for i in range(len(detection_boxes)):
                 if matches.shape[0] > 0 and matches[matches[:,1] == i].shape[0] == 0:
                     confusion_matrix[confusion_matrix.shape[0] - 1][detection_classes[i] - 1] += 1
@@ -108,22 +118,56 @@ def display(confusion_matrix, categories, output_path):
     for i in range(len(categories)):
         id = categories[i]["id"] - 1
         name = categories[i]["name"]
-        
+
         total_target = np.sum(confusion_matrix[id,:])
         total_predicted = np.sum(confusion_matrix[:,id])
-        
+
         precision = float(confusion_matrix[id, id] / total_predicted)
         recall = float(confusion_matrix[id, id] / total_target)
-        
+
         #print('precision_{}@{}IOU: {:.2f}'.format(name, IOU_THRESHOLD, precision))
         #print('recall_{}@{}IOU: {:.2f}'.format(name, IOU_THRESHOLD, recall))
-        
+
         results.append({'category' : name, 'precision_@{}IOU'.format(IOU_THRESHOLD) : precision, 'recall_@{}IOU'.format(IOU_THRESHOLD) : recall})
-    
+
     df = pd.DataFrame(results)
     print(df)
     df.to_csv(output_path)
-    
+
+def visualizeConfusionMatrix(categories):
+    # Refrences
+    # https://stackoverflow.com/questions/59165149/plot-confusion-matrix-with-scikit-learn-without-a-classifier
+    # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
+    # https://stackoverflow.com/questions/19233771/sklearn-plot-confusion-matrix-with-labels
+    # https://stackoverflow.com/questions/34781096/matplotlib-matshow-with-many-string-labels
+    #
+
+    ids = range(len(categories))
+
+    names = [0]*len(categories)
+    for i in range(len(categories)):
+        names[categories[i]["id"] - 1]  = categories[i]["name"]
+
+
+    cm = visualCM(correct, actual, ids)
+    fig = plt.figure(figsize=(18,16))
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title("Confusion Matrix")
+    fig.colorbar(cax)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
+    ax.set_xticklabels(['']+names)
+    ax.set_yticklabels(['']+names)
+    plt.xlabel('Predicted')
+    plt.ylabel('Truth')
+    plt.show()
+
+    #disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=ids)
+    #disp = disp.plot()#(include_values=include_values, cmap=cmap, ax=ax, xticks_rotation=x_ticks_rotation)
+    #plt.show()
+
 def main(argv):
     del argv
     required_flags = ['detections_record', 'label_map', 'output_path']
@@ -132,11 +176,14 @@ def main(argv):
             raise ValueError('Flag --{} is required'.format(flag_name))
 
     label_map = label_map_util.load_labelmap(FLAGS.label_map)
+
     categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=100, use_display_name=True)
 
     confusion_matrix = process_detections(FLAGS.detections_record, categories)
 
-    display(confusion_matrix, categories, FLAGS.output_path)    
-    
+    display(confusion_matrix, categories, FLAGS.output_path)
+
+    visualizeConfusionMatrix(categories)
+
 if __name__ == '__main__':
     tf.app.run(main)
