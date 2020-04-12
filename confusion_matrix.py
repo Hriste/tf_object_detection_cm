@@ -96,7 +96,7 @@ def process_detections(detections_record, categories):
                 if matches.shape[0] > 0 and matches[matches[:,0] == i].shape[0] == 1:
                     confusion_matrix[groundtruth_classes[i] - 1][detection_classes[int(matches[matches[:,0] == i, 1][0])] - 1] += 1
                     correct.append(groundtruth_classes[i]-1)
-                    actual.append(detection_classes[int(matches[matches[:,0] == i, 1][0])])
+                    actual.append(detection_classes[int(matches[matches[:,0] == i, 1][0])-1])
                 else:
                     confusion_matrix[groundtruth_classes[i] - 1][confusion_matrix.shape[1] - 1] += 1
 
