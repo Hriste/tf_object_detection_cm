@@ -134,39 +134,6 @@ def display(confusion_matrix, categories, output_path):
     print(df)
     df.to_csv(output_path)
 
-def visualizeConfusionMatrix(categories):
-    # Refrences
-    # https://stackoverflow.com/questions/59165149/plot-confusion-matrix-with-scikit-learn-without-a-classifier
-    # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
-    # https://stackoverflow.com/questions/19233771/sklearn-plot-confusion-matrix-with-labels
-    # https://stackoverflow.com/questions/34781096/matplotlib-matshow-with-many-string-labels
-    #
-
-    ids = range(len(categories))
-
-    names = [0]*len(categories)
-    for i in range(len(categories)):
-        names[categories[i]["id"] - 1]  = categories[i]["name"]
-
-
-    cm = visualCM(correct, actual, ids)
-    fig = plt.figure(figsize=(18,16))
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title("Confusion Matrix")
-    fig.colorbar(cax)
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
-    ax.set_xticklabels(['']+names)
-    ax.set_yticklabels(['']+names)
-    plt.xlabel('Predicted')
-    plt.ylabel('Truth')
-    plt.show()
-
-    #disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=ids)
-    #disp = disp.plot()#(include_values=include_values, cmap=cmap, ax=ax, xticks_rotation=x_ticks_rotation)
-    #plt.show()
 
 def main(argv):
     del argv
@@ -180,10 +147,31 @@ def main(argv):
     categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=100, use_display_name=True)
 
     confusion_matrix = process_detections(FLAGS.detections_record, categories)
-
+    
+    
+    ids = range(len(categories))
+    names = [0]*len(categories)
+    for i in range(len(categories)):
+        names[categories[i]["id"] -1 ]  = categories[i]["name"]
+    
+    fig = plt.figure(figsize=(18,16))
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(confusion_matrix, interpolation='nearest', cmap = plt.cm.Blues)
+    plt.title("Confusion Matrix")
+    fig.colorbar(cax)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
+    ax.set_xticklabels([' ']+names)
+    ax.set_yticklabels([' ']+names)
+    plt.xlabel('Predicted')
+    plt.ylabel('Truth')
+    plt.show()
+    
+    
     display(confusion_matrix, categories, FLAGS.output_path)
 
-    visualizeConfusionMatrix(categories)
+    #visualizeConfusionMatrix(categories)
 
 if __name__ == '__main__':
     tf.app.run(main)
