@@ -1,15 +1,26 @@
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import matplotlib
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import cv2
 
 from object_detection.core import standard_fields
 from object_detection.metrics import tf_example_parser
 from object_detection.utils import label_map_util
 
-from sklearn.metrics import confusion_matrix as visualCM
-from sklearn.metrics import ConfusionMatrixDisplay
+from object_detection.utils import visualization_utils as vu
 import matplotlib.ticker as ticker
+
+import PIL
+import IPython.display
+from google.protobuf import text_format
+import itertools
+from object_detection.protos import string_int_label_map_pb2 as pb
+from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder as TfDecoder
+
+import os
 
 flags = tf.app.flags
 
@@ -22,8 +33,7 @@ FLAGS = flags.FLAGS
 IOU_THRESHOLD = 0.5
 CONFIDENCE_THRESHOLD = 0.5
 
-correct = []
-actual = []
+NUM_TO_SHOW = 4
 
 def compute_iou(groundtruth_box, detection_box):
     g_ymin, g_xmin, g_ymax, g_xmax = tuple(groundtruth_box.tolist())
@@ -47,7 +57,7 @@ def process_detections(detections_record, categories):
 
     confusion_matrix = np.zeros(shape=(len(categories) + 1, len(categories) + 1))
 
-
+    num_shown = 0
     image_index = 0
     for string_record in record_iterator:
         example = tf.train.Example()
@@ -64,11 +74,32 @@ def process_detections(detections_record, categories):
             detection_classes = decoded_dict[standard_fields.DetectionResultFields.detection_classes][detection_scores >= CONFIDENCE_THRESHOLD]
             detection_boxes = decoded_dict[standard_fields.DetectionResultFields.detection_boxes][detection_scores >= CONFIDENCE_THRESHOLD]
 
+
+            while num_shown < NUM_TO_SHOW:
+                matplotlib.use('tkAgg')
+                pathToImage = os.path.join(os.getcwd(),'..','TestImages_2020-04-19_08-47',decoded_dict['key'])
+                img = plt.imread(pathToImage)
+                fig, ax = plt.subplots(1)
+                ax.imshow(img)
+                for box in groundtruth_boxes:
+                    h = box[2] - box[0]
+                    w = box[3] - box[1]
+                    rect = patches.Rectangle((box[1], box[0]), w, h, linewidth = 1, edgecolor='r', facecolor = 'none')
+                    ax.add_patch(rect)
+                for box in detection_boxes:
+                    h = box[2] - box[0]
+                    w = box[3] - box[1]
+                    rect = patches.Rectangle((box[1], box[0]), w, h, linewidth = 1, edgecolor='b', facecolor = 'none')
+                    ax.add_patch(rect)
+                plt.show()
+                num_shown += 1
+
+
             matches = []
+
 
             if image_index % 100 == 0:
                 print("Processed %d images" %(image_index))
-
             for i in range(len(groundtruth_boxes)):
                 for j in range(len(detection_boxes)):
                     iou = compute_iou(groundtruth_boxes[i], detection_boxes[j])
@@ -95,8 +126,6 @@ def process_detections(detections_record, categories):
             for i in range(len(groundtruth_boxes)):
                 if matches.shape[0] > 0 and matches[matches[:,0] == i].shape[0] == 1:
                     confusion_matrix[groundtruth_classes[i] - 1][detection_classes[int(matches[matches[:,0] == i, 1][0])] - 1] += 1
-                    correct.append(groundtruth_classes[i]-1)
-                    actual.append(detection_classes[int(matches[matches[:,0] == i, 1][0])-1])
                 else:
                     confusion_matrix[groundtruth_classes[i] - 1][confusion_matrix.shape[1] - 1] += 1
 
@@ -109,6 +138,7 @@ def process_detections(detections_record, categories):
     print("Processed %d images" % (image_index))
 
     return confusion_matrix
+
 
 def display(confusion_matrix, categories, output_path):
     print("\nConfusion Matrix:")
@@ -136,6 +166,7 @@ def display(confusion_matrix, categories, output_path):
 
 
 def main(argv):
+    #matplotlib.use('TkAgg')
     del argv
     required_flags = ['detections_record', 'label_map', 'output_path']
     for flag_name in required_flags:
@@ -147,13 +178,13 @@ def main(argv):
     categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=100, use_display_name=True)
 
     confusion_matrix = process_detections(FLAGS.detections_record, categories)
-    
-    
+
+
     ids = range(len(categories))
     names = [0]*len(categories)
     for i in range(len(categories)):
         names[categories[i]["id"] -1 ]  = categories[i]["name"]
-    
+
     fig = plt.figure(figsize=(18,16))
     ax = fig.add_subplot(111)
     cax = ax.matshow(confusion_matrix, interpolation='nearest', cmap = plt.cm.Blues)
@@ -167,11 +198,9 @@ def main(argv):
     plt.xlabel('Predicted')
     plt.ylabel('Truth')
     plt.show()
-    
-    
-    display(confusion_matrix, categories, FLAGS.output_path)
 
-    #visualizeConfusionMatrix(categories)
+
+    display(confusion_matrix, categories, FLAGS.output_path)
 
 if __name__ == '__main__':
     tf.app.run(main)
