@@ -21,6 +21,9 @@ from object_detection.protos import string_int_label_map_pb2 as pb
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder as TfDecoder
 
 import os
+from object_detection.core import data_decoder
+from object_detection.utils import visualization_utils as vis_util
+from datetime import datetime
 
 flags = tf.app.flags
 
@@ -33,7 +36,11 @@ FLAGS = flags.FLAGS
 IOU_THRESHOLD = 0.5
 CONFIDENCE_THRESHOLD = 0.5
 
-NUM_TO_SHOW = 4
+NUM_TO_SHOW = 100
+IMAGE_HEIGHT = 256#64
+IMAGE_WIDTH = 512#128
+
+category_index = 0
 
 def compute_iou(groundtruth_box, detection_box):
     g_ymin, g_xmin, g_ymax, g_xmax = tuple(groundtruth_box.tolist())
@@ -51,18 +58,25 @@ def compute_iou(groundtruth_box, detection_box):
 
     return intersection / float(boxAArea + boxBArea - intersection)
 
+
 def process_detections(detections_record, categories):
     record_iterator = tf.python_io.tf_record_iterator(path=detections_record)
     data_parser = tf_example_parser.TfExampleDetectionAndGTParser()
+
 
     confusion_matrix = np.zeros(shape=(len(categories) + 1, len(categories) + 1))
 
     num_shown = 0
     image_index = 0
+
+    detectionDirName = datetime.now().strftime("DetectionImages_%Y-%m-%d_%H-%M")
+    os.makedirs(detectionDirName)
+
     for string_record in record_iterator:
         example = tf.train.Example()
         example.ParseFromString(string_record)
         decoded_dict = data_parser.parse(example)
+
 
         image_index += 1
 
@@ -74,24 +88,31 @@ def process_detections(detections_record, categories):
             detection_classes = decoded_dict[standard_fields.DetectionResultFields.detection_classes][detection_scores >= CONFIDENCE_THRESHOLD]
             detection_boxes = decoded_dict[standard_fields.DetectionResultFields.detection_boxes][detection_scores >= CONFIDENCE_THRESHOLD]
 
+            if num_shown < NUM_TO_SHOW:
 
-            while num_shown < NUM_TO_SHOW:
-                matplotlib.use('tkAgg')
-                pathToImage = os.path.join(os.getcwd(),'..','TestImages_2020-04-19_08-47',decoded_dict['key'])
-                img = plt.imread(pathToImage)
-                fig, ax = plt.subplots(1)
-                ax.imshow(img)
+                # Convert encoded image in example TF Record to image
+                testing = TfDecoder()
+                features = testing.decode(string_record)
+                image = features['image']
+                with tf.Session() as sess:
+                    image = image.eval()
+
+                im = PIL.Image.fromarray(image)
                 for box in groundtruth_boxes:
-                    h = box[2] - box[0]
-                    w = box[3] - box[1]
-                    rect = patches.Rectangle((box[1], box[0]), w, h, linewidth = 1, edgecolor='r', facecolor = 'none')
-                    ax.add_patch(rect)
+                    vis_util.draw_bounding_box_on_image(im, box[0]*IMAGE_HEIGHT, box[1]*IMAGE_WIDTH, box[2]*IMAGE_HEIGHT, box[3]*IMAGE_WIDTH, color='red', thickness=1, use_normalized_coordinates=False)
                 for box in detection_boxes:
-                    h = box[2] - box[0]
-                    w = box[3] - box[1]
-                    rect = patches.Rectangle((box[1], box[0]), w, h, linewidth = 1, edgecolor='b', facecolor = 'none')
-                    ax.add_patch(rect)
-                plt.show()
+                    vis_util.draw_bounding_box_on_image(im, box[0]*IMAGE_HEIGHT, box[1]*IMAGE_WIDTH, box[2]*IMAGE_HEIGHT, box[3]*IMAGE_WIDTH, color='blue', thickness=1, use_normalized_coordinates=False)
+
+                # UNCOMMENT TO DISPLAY IMAGES W/ BoundingBox
+                #plt.imshow(np.asarray(im))
+                #plt.show()
+
+                # Code to create directory & save images w/ bounding boxes
+
+                filename = decoded_dict['key']
+
+                im.save(detectionDirName + "/" + filename)
+
                 num_shown += 1
 
 
@@ -155,10 +176,18 @@ def display(confusion_matrix, categories, output_path):
         precision = float(confusion_matrix[id, id] / total_predicted)
         recall = float(confusion_matrix[id, id] / total_target)
 
+        true_positive = confusion_matrix[id, id]
+
+        # this is when it predicts the class but it is not the class
+        false_positive = total_predicted - true_positive
+
+        # this is when it should have predicted the class but dosen't
+        false_negative = total_target - true_positive
+
         #print('precision_{}@{}IOU: {:.2f}'.format(name, IOU_THRESHOLD, precision))
         #print('recall_{}@{}IOU: {:.2f}'.format(name, IOU_THRESHOLD, recall))
 
-        results.append({'category' : name, 'precision_@{}IOU'.format(IOU_THRESHOLD) : precision, 'recall_@{}IOU'.format(IOU_THRESHOLD) : recall})
+        results.append({'category' : name, 'precision_@{}IOU'.format(IOU_THRESHOLD) : precision,'recall_@{}IOU'.format(IOU_THRESHOLD) : recall,'TP' : true_positive, 'FP' : false_positive, 'FN' : false_negative})
 
     df = pd.DataFrame(results)
     print(df)
@@ -166,7 +195,7 @@ def display(confusion_matrix, categories, output_path):
 
 
 def main(argv):
-    #matplotlib.use('TkAgg')
+    matplotlib.use('tkagg')
     del argv
     required_flags = ['detections_record', 'label_map', 'output_path']
     for flag_name in required_flags:
@@ -176,6 +205,7 @@ def main(argv):
     label_map = label_map_util.load_labelmap(FLAGS.label_map)
 
     categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=100, use_display_name=True)
+    category_index = label_map_util.create_category_index(categories)
 
     confusion_matrix = process_detections(FLAGS.detections_record, categories)
 
