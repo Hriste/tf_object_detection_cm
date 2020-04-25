@@ -36,11 +36,13 @@ FLAGS = flags.FLAGS
 IOU_THRESHOLD = 0.5
 CONFIDENCE_THRESHOLD = 0.5
 
-NUM_TO_SHOW = 100
+NUM_TO_SHOW = 10
 IMAGE_HEIGHT = 256#64
 IMAGE_WIDTH = 512#128
 
 category_index = 0
+
+detectionDirName = datetime.now().strftime("DetectionImages_%Y-%m-%d_%H-%M")
 
 def compute_iou(groundtruth_box, detection_box):
     g_ymin, g_xmin, g_ymax, g_xmax = tuple(groundtruth_box.tolist())
@@ -69,8 +71,8 @@ def process_detections(detections_record, categories):
     num_shown = 0
     image_index = 0
 
-    detectionDirName = datetime.now().strftime("DetectionImages_%Y-%m-%d_%H-%M")
-    os.makedirs(detectionDirName)
+
+    os.makedirs(detectionDirName, exist_ok=True)
 
     for string_record in record_iterator:
         example = tf.train.Example()
@@ -227,8 +229,7 @@ def main(argv):
     ax.set_yticklabels([' ']+names)
     plt.xlabel('Predicted')
     plt.ylabel('Truth')
-    plt.show()
-
+    plt.savefig(detectionDirName + "/" +"ConfusionMatrix.png")
 
     display(confusion_matrix, categories, FLAGS.output_path)
 
