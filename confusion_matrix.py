@@ -197,7 +197,7 @@ def display(confusion_matrix, categories, output_path):
 
 
 def main(argv):
-    matplotlib.use('tkagg')
+    #matplotlib.use('tkagg')
     del argv
     required_flags = ['detections_record', 'label_map', 'output_path']
     for flag_name in required_flags:
